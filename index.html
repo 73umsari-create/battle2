@@ -37,6 +37,8 @@ canvas#c{display:block;width:100%;height:100%;}
 #hp{color:var(--hp);}
 .right{display:flex;flex-direction:column;align-items:flex-end;gap:4px;}
 #radar{width:68px;height:68px;border-radius:50%;background:var(--panel);}
+.zrow{display:flex;gap:4px;}
+#zin,#zout{pointer-events:auto;font:inherit;font-size:14px;line-height:1;border:0;border-radius:999px;width:28px;height:24px;padding:0;background:var(--panel);color:var(--ink);cursor:pointer;}
 #mute,#viewBtn,#musicBtn{pointer-events:auto;font:inherit;font-size:12px;border:0;border-radius:999px;padding:4px 8px;background:var(--panel);color:var(--ink);cursor:pointer;}
 #musicBtn.off{opacity:.5;text-decoration:line-through;}
 #target{position:absolute;left:50%;top:40px;transform:translateX(-50%);background:var(--panel);color:var(--ink);padding:3px 10px 5px;border-radius:10px;text-align:center;min-width:110px;font-size:12px !important;pointer-events:none;font-size:16px;}
@@ -105,6 +107,7 @@ button:focus-visible{outline:3px solid var(--ink);outline-offset:2px;}
       <canvas id="radar" width="192" height="192" aria-label="적 위치 레이더"></canvas>
       <button id="mute" aria-label="소리 끄기">🔊</button>
       <button id="viewBtn" aria-label="시점 바꾸기">🎥 기본</button>
+      <div class="zrow"><button id="zin" aria-label="확대">＋</button><button id="zout" aria-label="축소">－</button></div>
       <button id="musicBtn" aria-label="배경음악 끄기">🎵 음악</button>
     </div>
   </div>
@@ -166,7 +169,7 @@ renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
 const scene=new THREE.Scene();
 const SKY=0xcfdde3;
 scene.background=new THREE.Color(SKY);scene.fog=new THREE.Fog(SKY,60,240);
-const camera=new THREE.PerspectiveCamera(60,1,.1,400);
+const camera=new THREE.PerspectiveCamera(60,1,.1,700);
 const hemi=new THREE.HemisphereLight(0xf4f8ff,0x5a6a3a,.8);scene.add(hemi);
 const sun=new THREE.DirectionalLight(0xfff0d8,.85);
 sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);
@@ -1618,16 +1621,21 @@ addEventListener('keyup',e=>{keys[e.code]=false;});
 const stickEl=document.getElementById('stick'),knob=document.getElementById('knob');
 const touches=new Map();let pinchD=0;let joy={x:0,y:0};
 canvas.addEventListener('pointerdown',e=>{ac();
+  const others=[...touches.entries()];
+  if(e.pointerType!=='mouse'&&others.length===1){const [oid,o]=others[0];const fresh=o.role==='look'||(o.role==='joy'&&(o.moved||0)<14);
+    if(fresh){if(o.role==='joy'){joy={x:0,y:0};stickEl.style.display='none';}o.role='pinch';o.lx=o.lx??o.ox;o.ly=o.ly??o.oy;touches.set(e.pointerId,{role:'pinch',lx:e.clientX,ly:e.clientY,moved:99});pinchD=Math.hypot(o.lx-e.clientX,o.ly-e.clientY);try{canvas.setPointerCapture(e.pointerId);}catch(err){}return;}}
   const left=e.clientX<innerWidth*.45;
-  if(left&&e.pointerType!=='mouse'&&![...touches.values()].some(t=>t.role==='joy')){touches.set(e.pointerId,{role:'joy',ox:e.clientX,oy:e.clientY});stickEl.style.display='block';stickEl.style.left=e.clientX+'px';stickEl.style.top=e.clientY+'px';knob.style.transform='translate(0,0)';}
+  if(left&&e.pointerType!=='mouse'&&![...touches.values()].some(t=>t.role==='joy')){touches.set(e.pointerId,{role:'joy',ox:e.clientX,oy:e.clientY,lx:e.clientX,ly:e.clientY,moved:0});stickEl.style.display='block';stickEl.style.left=e.clientX+'px';stickEl.style.top=e.clientY+'px';knob.style.transform='translate(0,0)';}
   else touches.set(e.pointerId,{role:'look',lx:e.clientX,ly:e.clientY,moved:0});
-  canvas.setPointerCapture(e.pointerId);});
+  try{canvas.setPointerCapture(e.pointerId);}catch(err){}});
 canvas.addEventListener('pointermove',e=>{const t=touches.get(e.pointerId);if(!t)return;
-  if(t.role==='joy'){let dx=e.clientX-t.ox,dy=e.clientY-t.oy;const L=Math.hypot(dx,dy),R=48;if(L>R){dx=dx/L*R;dy=dy/L*R;}joy={x:dx/R,y:-dy/R};knob.style.transform=`translate(${dx}px,${dy}px)`;}
+  if(t.role==='pinch'){t.lx=e.clientX;t.ly=e.clientY;const ps=[...touches.values()].filter(o=>o.role==='pinch');if(ps.length>=2){const d=Math.max(15,Math.hypot(ps[0].lx-ps[1].lx,ps[0].ly-ps[1].ly));if(pinchD>0)setZoom(camDistT*pinchD/d);pinchD=d;}return;}
+  if(t.role==='joy'){let dx=e.clientX-t.ox,dy=e.clientY-t.oy;t.moved=Math.max(t.moved||0,Math.hypot(dx,dy));const L=Math.hypot(dx,dy),R=48;if(L>R){dx=dx/L*R;dy=dy/L*R;}joy={x:dx/R,y:-dy/R};knob.style.transform=`translate(${dx}px,${dy}px)`;}
   else{const looks=[...touches.values()].filter(o=>o.role==='look');
-    if(looks.length>=2){t.lx=e.clientX;t.ly=e.clientY;t.moved+=10;const d=Math.hypot(looks[0].lx-looks[1].lx,looks[0].ly-looks[1].ly);if(pinchD>0)camDistT=Math.max(4,Math.min(70,camDistT*pinchD/Math.max(20,d)));pinchD=d;return;}
+    if(looks.length>=2){t.lx=e.clientX;t.ly=e.clientY;t.moved+=10;const d=Math.hypot(looks[0].lx-looks[1].lx,looks[0].ly-looks[1].ly);if(pinchD>0)setZoom(camDistT*pinchD/Math.max(20,d));pinchD=d;return;}
     pinchD=0;const dx=e.clientX-t.lx,dy=e.clientY-t.ly;t.moved+=Math.abs(dx)+Math.abs(dy);camYaw-=dx*.008;camPitchT=Math.max(.08,Math.min(1.55,camPitchT+dy*.005));t.lx=e.clientX;t.ly=e.clientY;}});
-function endPtr(e){const t=touches.get(e.pointerId);if(!t)return;if(t.role==='joy'){joy={x:0,y:0};stickEl.style.display='none';}else if(e.pointerType==='mouse'&&t.moved<6&&e.type==='pointerup')atkQ=true;touches.delete(e.pointerId);}
+function endPtr(e){const t=touches.get(e.pointerId);if(!t)return;if(t.role==='joy'){joy={x:0,y:0};stickEl.style.display='none';}else if(e.pointerType==='mouse'&&t.moved<6&&e.type==='pointerup')atkQ=true;touches.delete(e.pointerId);
+  if(t.role==='pinch'){pinchD=0;for(const [,o] of touches)if(o.role==='pinch')o.role='look';}}
 canvas.addEventListener('pointerup',endPtr);canvas.addEventListener('pointercancel',endPtr);
 document.getElementById('jump').addEventListener('pointerdown',e=>{e.preventDefault();ac();jumpQ=true;});
 document.getElementById('atk').addEventListener('pointerdown',e=>{e.preventDefault();ac();atkQ=true;});
@@ -1639,7 +1647,12 @@ document.querySelectorAll('#cmd .cmd').forEach(b=>{
   b.addEventListener('pointerdown',e=>{e.preventDefault();ac();setOrder(b.dataset.k,b.dataset.o,true);});
   b.addEventListener('click',e=>{e.preventDefault();ac();setOrder(b.dataset.k,b.dataset.o);});
 });
-canvas.addEventListener('wheel',e=>{camDistT=Math.max(4,Math.min(60,camDistT+e.deltaY*.02));},{passive:true});
+const ZMIN=2.8,ZMAX=115;
+function setZoom(d){camDistT=Math.max(ZMIN,Math.min(ZMAX,d));}
+canvas.addEventListener('wheel',e=>{e.preventDefault();setZoom(camDistT*Math.exp(e.deltaY*(e.ctrlKey?.01:.0015)));},{passive:false});
+addEventListener('keydown',e=>{if(e.code==='Equal'||e.code==='NumpadAdd')setZoom(camDistT/1.25);if(e.code==='Minus'||e.code==='NumpadSubtract')setZoom(camDistT*1.25);});
+document.getElementById('zin').addEventListener('pointerdown',e=>{e.preventDefault();setZoom(camDistT/1.35);});
+document.getElementById('zout').addEventListener('pointerdown',e=>{e.preventDefault();setZoom(camDistT*1.35);});
 if(matchMedia('(hover: hover) and (pointer: fine)').matches)document.getElementById('hint').textContent='WASD 이동, 스페이스 점프, 클릭이나 F로 공격, T 시점, H 신기전, 1·2·3이나 Q로 무기 바꾸기, 궁병 Z·X·C, 창병 V·B·N (공격·정지·후퇴)·M 성벽, G 성문';
 
 // ================= HUD =================
@@ -2308,7 +2321,8 @@ function updateCamera(dt){
   scene.fog.near=60+camDist-nightK*32;scene.fog.far=240+camDist*2-nightK*125;
   camTarget.lerp(new THREE.Vector3(P.pos.x,P.pos.y+(P.mounted?2.3:1.5),P.pos.z),Math.min(1,dt*8));
   for(let i=deadHorses.length-1;i>=0;i--){const d=deadHorses[i];d.t+=dt;d.g.rotation.z=Math.min(Math.PI/2,d.t*2.5);if(d.t>2)d.g.position.y-=dt*.6;if(d.t>4.5){kill(d.g);deadHorses.splice(i,1);}}
-  const h=Math.sin(camPitch)*camDist,fd=Math.cos(camPitch)*camDist;
+  const minP=camDist>28?Math.min(1.3,.42+(camDist-28)/90):0,pe=Math.max(camPitch,minP);
+  const h=Math.sin(pe)*camDist,fd=Math.cos(pe)*camDist;
   const want=new THREE.Vector3(camTarget.x+Math.sin(camYaw)*fd,camTarget.y+h,camTarget.z+Math.cos(camYaw)*fd);
   let floor=-.2;for(const p of plats){if(p.kind!=='ground'&&Math.hypot(want.x-p.x,want.z-p.z)<p.r+.6)floor=Math.max(floor,p.top+.6);}
   for(const b of boxes){if(Math.abs(want.x-b.x)<b.hw+.4&&Math.abs(want.z-b.z)<b.hd+.4)floor=Math.max(floor,b.top+.8);}
